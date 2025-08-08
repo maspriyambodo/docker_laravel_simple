@@ -1,22 +1,22 @@
 services:
-  app:
+  ternasys_backend:
     build:
       context: .
       dockerfile: docker/php/Dockerfile
       args:
         USER_ID: ${USER_ID:-1000}
         GROUP_ID: ${GROUP_ID:-1000}
-    container_name: ternasys_backend
+    image: ternasys_app:latest
     restart: unless-stopped
     working_dir: /var/www
+    expose:
+      - "9000"
     volumes:
       - ./src:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
     networks:
       - app-network
       - nginx-proxy_network
-    depends_on:
-      - app-nginx
     environment:
       - DB_CONNECTION=mysql
       - DB_HOST=${DB_HOST}
@@ -27,8 +27,16 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-null}
       - REDIS_PORT=${REDIS_PORT:-6379}
+    deploy:
+      resources:
+        limits:
+          cpus: '4.5'
+          memory: 6G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
 
-  app-nginx:
+  ternasys_nginx:
     image: nginx:alpine
     container_name: ternasys_nginx
     restart: unless-stopped
@@ -38,12 +46,15 @@ services:
     networks:
       - app-network
       - nginx-proxy_network
+    depends_on:
+      - ternasys_backend
     environment:
       - VIRTUAL_HOST=${VIRTUAL_HOST}
       - LETSENCRYPT_HOST=${LETSENCRYPT_HOST}
       - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 
-  queue:
+  ternasys_queue:
+    image: ternasys_app:latest
     build:
       context: .
       dockerfile: docker/php/Dockerfile
@@ -53,7 +64,7 @@ services:
     container_name: ternasys_queue
     restart: unless-stopped
     working_dir: /var/www
-    command: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=90 --max-time=3600 --max-jobs=1000
     volumes:
       - ./src:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
@@ -61,7 +72,7 @@ services:
       - app-network
       - nginx-proxy_network
     depends_on:
-      - app
+      - ternasys_backend
     environment:
       - DB_CONNECTION=mysql
       - DB_HOST=${DB_HOST}
@@ -72,8 +83,17 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-null}
       - REDIS_PORT=${REDIS_PORT:-6379}
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
 
-  scheduler:
+  ternasys_scheduler:
+    image: ternasys_app:latest
     build:
       context: .
       dockerfile: docker/php/Dockerfile
@@ -83,7 +103,7 @@ services:
     container_name: ternasys_scheduler
     restart: unless-stopped
     working_dir: /var/www
-    command: /bin/sh -c "while [ true ]; do php artisan schedule:run --verbose --no-interaction & sleep 60; done"
+    command: /bin/sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
     volumes:
       - ./src:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
@@ -91,7 +111,7 @@ services:
       - app-network
       - nginx-proxy_network
     depends_on:
-      - app
+      - ternasys_backend
     environment:
       - DB_CONNECTION=mysql
       - DB_HOST=${DB_HOST}
@@ -102,6 +122,11 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-null}
       - REDIS_PORT=${REDIS_PORT:-6379}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
 
 networks:
   app-network:
